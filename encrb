@@ -61,7 +61,7 @@ class Encrb:
         tmpdir = tempfile.mkdtemp('-' + friendlyname)
 
         # Construct rsync params
-        rsync_parameters = ['-avz', '--partial', '--progress', '--bwlimit', str(self.options.bwlimit), '-e', 'ssh -p ' + str(self.options.port)]
+        rsync_parameters = ['-avzh', '--partial', '--progress', '--bwlimit', str(self.options.bwlimit), '-e', 'ssh -p ' + str(self.options.port)]
 
         # Include filters must go before exclude for rsync to work as intended
         for filter_name in ["include", "exclude"]:
