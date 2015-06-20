@@ -19,6 +19,7 @@ import time
 import getpass
 import re
 import shutil
+import ConfigParser
 
 def path_to_string(path):
     return path.strip('/').replace('/', '-')
@@ -197,21 +198,61 @@ class Encrb:
 
     def run(self):
         parser = optparse.OptionParser(usage='usage: %prog [options] dir-to-back-up1... remotepath')
-        parser.add_option('-k', '--keyfile', dest='keyfile', default='~/.encrb/encfs.xml', help='encfs keyfile to use [%default]')
-        parser.add_option('-p', '--passfile', dest='passfile', default='~/.encrb/password', help='file containing encfs keyfile password [%default]')
-        parser.add_option('-b', '--bwlimit', dest='bwlimit', default=0, type='int', help='Bandwidth limit (KiB/s) for rsync [%default]')
-        parser.add_option('-v', '--verify', dest='verify', default=False, action="store_true", help="Instead of backing up, verify that the backups match sources")
-        parser.add_option('', '--backup-keyfile', dest='backup_keyfile', default=False, action="store_true", help="Backup Encfs keyfile on remote machine - NOT RECOMMENDED")
-        parser.add_option('', '--no-env-check', dest='check_env', default=True, action="store_false", help="Disable environment tool version checking")
-        parser.add_option('-i', '--include-from', dest='include_from', default='', help='Read rsync include patterns from file')
-        parser.add_option('-e', '--exclude-from', dest='exclude_from', default='', help='Read rsync exclude patterns from file')
-        parser.add_option('', '--no-delete', dest='rsync_delete', default=True, action="store_false", help="Do not delete existing remote files that are no longer present locally or have been excluded")
-        parser.add_option('-P', '--port', dest='port', default=22, type='int', help='Port used by rsync [%default]')
-        parser.add_option('-t', '--tmpdir', dest='custom_tmp', default='', help='Define a custom tmp dir, otherwise the system default will be used')
 
+        paths = optparse.OptionGroup(parser, 'paths')
+        paths.add_option('-k', '--keyfile', dest='keyfile', default='~/.encrb/encfs.xml', help='encfs keyfile to use [%default]')
+        paths.add_option('-p', '--passfile', dest='passfile', default='~/.encrb/password', help='file containing encfs keyfile password [%default]')
+        paths.add_option('-i', '--include-from', dest='include_from', default='', help='Read rsync include patterns from file')
+        paths.add_option('-e', '--exclude-from', dest='exclude_from', default='', help='Read rsync exclude patterns from file')
+        paths.add_option('-t', '--tmpdir', dest='custom_tmp', default='', help='Define a custom tmp dir, otherwise the system default will be used')
+        paths.add_option('-c', '--config', dest='config_file', default='encrb.cfg', help='Define a config file to load options from. Any options set via the command line take presidence over the config')
+
+        settings = optparse.OptionGroup(parser, 'settings')
+        settings.add_option('-b', '--bwlimit', dest='bwlimit', default=0, type='int', help='Bandwidth limit (KiB/s) for rsync [%default]')
+        settings.add_option('-P', '--port', dest='port', default=22, type='int', help='Port used by rsync [%default]')
+
+        flags = optparse.OptionGroup(parser, 'flags')
+        flags.add_option('-v', '--verify', dest='verify', default=False, action="store_true", help="Instead of backing up, verify that the backups match sources")
+        flags.add_option('', '--backup-keyfile', dest='backup_keyfile', default=False, action="store_true", help="Backup Encfs keyfile on remote machine - NOT RECOMMENDED")
+        flags.add_option('', '--no-env-check', dest='check_env', default=True, action="store_false", help="Disable environment tool version checking")
+        flags.add_option('', '--no-delete', dest='rsync_delete', default=True, action="store_false", help="Do not delete existing remote files that are no longer present locally or have been excluded")
+
+        parser.add_option_group(paths)
+        parser.add_option_group(settings)
+        parser.add_option_group(flags)
+
+        # First, parse options
         (options, args) = parser.parse_args()
         self.options = options
         self.args = args
+        self.options.config_file = os.path.expanduser(self.options.config_file)
+
+        if options.config_file and os.path.isfile(options.config_file):
+            # Load config from file and then re-parse
+            config = ConfigParser.ConfigParser(allow_no_value=True)
+            config.read(self.options.config_file)
+
+            for group in parser.option_groups:
+                for option in group.option_list:
+                    groupTxt = group.title
+                    optionTxt = option._long_opts[0]
+                    if config.has_option(groupTxt, optionTxt):
+                        value = config.get(groupTxt, optionTxt)
+                        if option.action in ('store_true', 'store_false'):
+                            sys.argv.insert(1,'--%s' % optionTxt)
+                        else:
+                            value = config.get(groupTxt, optionTxt)
+                            if value:
+                                sys.argv.insert(1,'--%s=%s' % (optionTxt, value))
+
+            if not args:
+                for option in ('src_dirs', 'remote'):
+                    if config.has_option('args', option):
+                        value = config.get('args', option).split(',')
+                        sys.argv.extend(item.strip() for item in value)
+
+            self.options, self.args = parser.parse_args()
+
         self.options.keyfile = os.path.expanduser(self.options.keyfile)
         self.options.passfile = os.path.expanduser(self.options.passfile)
         self.options.include_from = os.path.expanduser(self.options.include_from)
