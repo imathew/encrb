@@ -18,6 +18,7 @@ import tempfile
 import time
 import getpass
 import re
+import shutil
 
 def path_to_string(path):
     return path.strip('/').replace('/', '-')
@@ -276,11 +277,16 @@ class Encrb:
             tmpdirplain = tempfile.mkdtemp('-encfs-first-plain')
             try:
                 print "Mounting encfs for first time..."
-                env = self.get_modified_env()
-                subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), '--reverse', tmpdir, tmpdirplain], env=env)
+                subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), '--reverse', tmpdir, tmpdirplain], env=os.environ)
+
+                # Grab config and put it to where we want it
+                shutil.copy(os.path.join(tmpdir, '.encfs6.xml'), os.path.expanduser(self.options.keyfile))
+                
             finally:
                 print 'Unmounting encfs "%s...' % tmpdirplain
                 subprocess.call(['fusermount', '-u', tmpdirplain])
+                shutil.rmtree(tmpdir)
+                os.rmdir(tmpdirplain)
 
 e = Encrb()
 e.run()
