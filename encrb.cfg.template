@@ -1,16 +1,37 @@
 [paths]
-keyfile = ~/.encrb/encfs.xml ;encfs keyfile to use
-passfile = ~/.encrb/password ;file containing encfs keyfile password
-include-from = ;Read rsync include patterns from file
-exclude-from = ;Read rsync exclude patterns from file
-tmpdir = ;Define a custom tmp dir, otherwise the system default will be used
+# keyfile: encfs keyfile to use
+keyfile = ~/.encrb/encfs.xml
+# passfile: file containing encfs keyfile password
+passfile = ~/.encrb/password
+# Read rsync include patterns from file
+include-from =
+# Read rsync exclude patterns from file
+exclude-from =
+# Define a custom tmp dir, otherwise the system default will be used
+tmpdir =
 
 [settings]
-bwlimit = 0 ;Bandwidth limit (KiB/s) for rsync
-port = 22 ;Port used by rsync
+# Bandwidth limit (KiB/s) for rsync
+bwlimit = 0
+# Port used by rsync
+port = 22
+# Tunneling mode: none, tsocks, or auto
+tunnel-mode = none
 
-[flags]
-#verify ;Instead of backing up, verify that the backups match sources
-#backup-keyfile ;Backup Encfs keyfile on remote machine - NOT RECOMMENDED
-#no-env-check ;Disable environment tool version checking
-#no-delete ;Do not delete existing remote files that are no longer present locally or have been excluded
+[flags] ; ( Uncomment to enable )
+# Instead of backing up, verify that the backups match sources
+#verify
+
+# Backup Encfs keyfile on remote machine - NOT RECOMMENDED
+#backup-keyfile
+
+# Disable environment tool version checking
+#no-env-check
+
+# Do not delete existing remote files that are no longer present locally or have been excluded
+#no-delete
+
+[args]
+# Directories to backup
+src_dirs = 
+remote = 

@@ -2,6 +2,7 @@
 # Copyright (c) 2012-2013 Heikki Hokkanen <hoxu at users.sf.net>
 # Copyright (c) 2013 Andrius Sutas <git at motoko.sutas.eu>
 # Copyright (c) 2014 Gustavo Brigo <me at gustavobrigo.com>
+# Copyright (c) 2015 Peter Naudus <linuxlefty at gmail.com>
 # License: GPLv3
 # encrb - encrypted remote backup
 #
@@ -27,9 +28,17 @@ def path_to_string(path):
 class Encrb:
     def check_environment(self):
         required_tools = [('encfs', 1, 7, 3), ('sshfs', 0, 0, 0), ('rsync', 0, 0, 0), ('fusermount', 0, 0, 0)]
+
+        if self.options.tunnel != 'none':
+            required_tools.append(('tsocks', None, None, None)) # TSocks has no --version command
         
         for (required_cmd, required_major, required_minor, required_build) in required_tools:
-            status, version = commands.getstatusoutput(required_cmd + " --version")
+            if required_major is None:
+                status, _ = commands.getstatusoutput('which ' + required_cmd)
+                version = '0.0,0'
+                required_major = required_minor = required_build = 0
+            else:
+                status, version = commands.getstatusoutput(required_cmd + " --version")
 
             # Check return value
             if (status != 0):
@@ -91,7 +100,7 @@ class Encrb:
                 destination = os.path.join(self.destination, friendlyname)
                 print 'Rsyncing encrypted "%s" to "%s"...' % (path, destination)
                 sys.stdout.flush()
-                subprocess.call(['rsync'] + rsync_parameters + [tmpdir + '/', destination])
+                subprocess.call(self.rsyncCmd + rsync_parameters + [tmpdir + '/', destination])
             except KeyboardInterrupt, e:
                 print 'KeyboardInterrupt, sleeping 1 sec, then unmounting'
                 time.sleep(1)
@@ -111,7 +120,15 @@ class Encrb:
         try:
             print 'Rsyncing Encfs keyfile to "%s"...' % (self.destination)
             sys.stdout.flush()
-            subprocess.call(['rsync', '-avz', '--progress', '--bwlimit', str(self.options.bwlimit), '-e', 'ssh -p ' + str(self.options.port), self.options.keyfile, self.destination])
+            subprocess.call(
+                self.rsyncCmd + [
+                    '-avz', '--progress',
+                    '--bwlimit',str(self.options.bwlimit),
+                    '-e', 'ssh -p ' + str(self.options.port),
+                    self.options.keyfile,
+                    self.destination
+                ]
+            )
         except e:
             #print 'KeyboardInterrupt...'
             time.sleep(1)
@@ -142,7 +159,7 @@ class Encrb:
 
                 # compare files
                 print 'Running rsync --dry-run, this should not list any changes...'
-                subprocess.call(['rsync', '-a', '--dry-run', path, tmpdirplain])
+                subprocess.call(self.rsyncCmd + ['-a', '--dry-run', path, tmpdirplain])
 
             finally:
                 # wait a bit, or unmounting fails
@@ -216,6 +233,7 @@ class Encrb:
         settings = optparse.OptionGroup(parser, 'settings')
         settings.add_option('-b', '--bwlimit', dest='bwlimit', default=0, type='int', help='Bandwidth limit (KiB/s) for rsync [%default]')
         settings.add_option('-P', '--port', dest='port', default=22, type='int', help='Port used by rsync [%default]')
+        settings.add_option('', '--tunnel-mode', dest='tunnel', default='none', type='choice', help='If tunneling should be used or not [%default]', choices=['none', 'tsocks', 'auto'])
 
         flags = optparse.OptionGroup(parser, 'flags')
         flags.add_option('-v', '--verify', dest='verify', default=False, action="store_true", help="Instead of backing up, verify that the backups match sources")
@@ -264,6 +282,24 @@ class Encrb:
         self.options.include_from = os.path.expanduser(self.options.include_from)
         self.options.exclude_from = os.path.expanduser(self.options.exclude_from)
         self.options.custom_tmp = os.path.expanduser(self.options.custom_tmp)
+
+        if self.options.tunnel == 'auto':
+            # Check if a VPN is running. If so, use tsocks. Else, don't
+            try:
+                with open('/sys/class/net/vpn0/operstate', 'r') as state:
+                    if state.read().strip() == 'up':
+                        self.options.tunnel = 'tsocks'
+                    else:
+                        self.options.tunnel = 'none'
+            except IOError:
+                self.options.tunnel = 'none'
+        if self.options.tunnel == 'none':
+            self.rsyncCmd = ['rsync']
+        elif self.options.tunnel == 'tsocks':
+            self.rsyncCmd = ['tsocks', 'rsync']
+        else:
+            raise ValueError('Unknown option for --tunnel-mode: ' + self.options.tunnel)
+
         print 'Options:', options
 
         if (self.options.check_env):
