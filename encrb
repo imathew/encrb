@@ -61,7 +61,13 @@ class Encrb:
         tmpdir = tempfile.mkdtemp('-' + friendlyname)
 
         # Construct rsync params
-        rsync_parameters = ['-avzh', '--partial', '--progress', '--bwlimit', str(self.options.bwlimit), '-e', 'ssh -p ' + str(self.options.port)]
+        rsync_parameters = [
+            '-avzh',
+            '--partial', '--partial-dir=.rsync-partial',
+            '--delay-updates', '--progress',
+            '--bwlimit', str(self.options.bwlimit),
+            '-e', 'ssh -p ' + str(self.options.port)
+        ]
 
         # Include filters must go before exclude for rsync to work as intended
         for filter_name in ["include", "exclude"]:
@@ -72,7 +78,7 @@ class Encrb:
                 pass
 
         if (self.options.rsync_delete):
-            rsync_parameters += ['--delete', '--delete-excluded']
+            rsync_parameters += ['--delete', '--delete-excluded', '--delete-delay']
 
         # create encfs mount
         print 'Making encfs reverse mount to "%s"...' % tmpdir
