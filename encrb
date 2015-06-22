@@ -235,7 +235,7 @@ class Encrb:
             for group in parser.option_groups:
                 for option in group.option_list:
                     groupTxt = group.title
-                    optionTxt = option._long_opts[0]
+                    optionTxt = option._long_opts[0].strip('-')
                     if config.has_option(groupTxt, optionTxt):
                         value = config.get(groupTxt, optionTxt)
                         if option.action in ('store_true', 'store_false'):
