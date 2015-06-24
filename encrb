@@ -71,9 +71,8 @@ class Encrb:
 
         # Construct rsync params
         rsync_parameters = [
-            '-avzh',
+            '-avzh', '--progress',
             '--partial', '--partial-dir=.rsync-partial',
-            '--delay-updates', '--progress',
             '--bwlimit', str(self.options.bwlimit),
             '-e', 'ssh -p ' + str(self.options.port)
         ]
