@@ -267,12 +267,12 @@ class Encrb:
                             value = config.get(groupTxt, optionTxt)
                             if value:
                                 sys.argv.insert(1,'--%s=%s' % (optionTxt, value))
-
+            # Source dirs and remote backup location were not specified via command line, read them in from config file
             if not args:
                 for option in ('src_dirs', 'remote'):
                     if config.has_option('args', option):
                         value = config.get('args', option).split(',')
-                        sys.argv.extend(item.strip() for item in value)
+                        sys.argv.extend(os.path.expanduser(item).strip() for item in value)
 
             self.options, self.args = parser.parse_args()
 
