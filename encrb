@@ -272,7 +272,7 @@ class Encrb:
                 for option in ('src_dirs', 'remote'):
                     if config.has_option('args', option):
                         value = config.get('args', option).split(',')
-                        sys.argv.extend(os.path.expanduser(item).strip() for item in value)
+                        sys.argv.extend(os.path.expanduser(item.strip()) for item in value)
 
             self.options, self.args = parser.parse_args()
 
