@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 # Copyright (c) 2012-2013 Heikki Hokkanen <hoxu at users.sf.net>
 # Copyright (c) 2013 Andrius Sutas <git at motoko.sutas.eu>
 # Copyright (c) 2014 Gustavo Brigo <me at gustavobrigo.com>
@@ -13,362 +13,361 @@ import os
 import random
 import string
 import subprocess
-import commands
 import sys
 import tempfile
 import time
 import getpass
 import re
 import shutil
-import ConfigParser
+import configparser
 
 def path_to_string(path):
-    return path.strip('/').replace('/', '-')
+	return path.strip('/').replace('/', '-')
 
 class Encrb:
-    def check_environment(self):
-        required_tools = [('encfs', 1, 7, 3), ('sshfs', 0, 0, 0), ('rsync', 0, 0, 0), ('fusermount', 0, 0, 0)]
+	def check_environment(self):
+		required_tools = [('encfs', 1, 7, 3), ('sshfs', 0, 0, 0), ('rsync', 0, 0, 0), ('fusermount', 0, 0, 0)]
 
-        if self.options.tunnel != 'none':
-            required_tools.append(('tsocks', None, None, None)) # TSocks has no --version command
-        
-        for (required_cmd, required_major, required_minor, required_build) in required_tools:
-            if required_major is None:
-                status, _ = commands.getstatusoutput('which ' + required_cmd)
-                version = '0.0,0'
-                required_major = required_minor = required_build = 0
-            else:
-                status, version = commands.getstatusoutput(required_cmd + " --version")
+		if self.options.tunnel != 'none':
+			required_tools.append(('tsocks', None, None, None)) # TSocks has no --version command
 
-            # Check return value
-            if (status != 0):
-                raise Exception(required_cmd + " not found or crashed during version call...")
-            
-            # Consider only first "version" line
-            version = version.split('\n')[0]
+		for (required_cmd, required_major, required_minor, required_build) in required_tools:
+			if required_major is None:
+				status, _ = subprocess.getstatusoutput('which ' + required_cmd)
+				version = '0.0,0'
+				required_major = required_minor = required_build = 0
+			else:
+				status, version = subprocess.getstatusoutput(required_cmd + " --version")
 
-            # Look only for two or three numbers separated by dots
-            version = str(re.search(r"\d\.\d(\.\d)?", version).group())
+			# Check return value
+			if (status != 0):
+				raise Exception(required_cmd + " not found or crashed during version call...")
 
-            # Parse version numbers
-            version_numbers = version.split('.')
-            version_major = int(version_numbers[0])
-            version_minor = int(version_numbers[1])
-            version_build = 0
-            if (len(version_numbers) > 2):
-                version_build = int(version_numbers[2])
-            
-            # Check version
-            if ((version_major, version_minor, version_build) < (required_major, required_minor, required_build)):
-                raise Exception(required_cmd + " must have version " + ".".join([str(required_major), str(required_minor), str(required_build)]) + " or higher, is: " + version)
-                
-            print required_cmd + " version: " + version
+			# Consider only first "version" line
+			version = version.split('\n')[0]
 
-    def backup_path(self, path):
-        print 'Backing up:', path
-        friendlyname = path_to_string(path)
-        tmpdir = tempfile.mkdtemp('-' + friendlyname)
+			# Look only for two or three numbers separated by dots
+			version = str(re.search(r"\d\.\d(\.\d)?", version).group())
 
-        # Construct rsync params
-        rsync_parameters = [
-            '-avzh', '--progress',
-            '--partial', '--partial-dir=.rsync-partial',
-            '--bwlimit', str(self.options.bwlimit),
-            '-e', 'ssh -p ' + str(self.options.port)
-        ]
+			# Parse version numbers
+			version_numbers = version.split('.')
+			version_major = int(version_numbers[0])
+			version_minor = int(version_numbers[1])
+			version_build = 0
+			if (len(version_numbers) > 2):
+				version_build = int(version_numbers[2])
 
-        # Include filters must go before exclude for rsync to work as intended
-        for filter_name in ["include", "exclude"]:
-            try:
-                for e in self.filter_paths[filter_name]:
-                    rsync_parameters.append('--' + filter_name + '=' + e)
-            except:
-                pass
+			# Check version
+			if ((version_major, version_minor, version_build) < (required_major, required_minor, required_build)):
+				raise Exception(required_cmd + " must have version " + ".".join([str(required_major), str(required_minor), str(required_build)]) + " or higher, is: " + version)
+				
+			print(required_cmd + " version: " + version)
 
-        if (self.options.rsync_delete):
-            rsync_parameters += ['--delete', '--delete-excluded', '--delete-delay']
+	def backup_path(self, path):
+		print('Backing up:', path)
+		friendlyname = path_to_string(path)
+		tmpdir = tempfile.mkdtemp('-' + friendlyname)
 
-        # create encfs mount
-        print 'Making encfs reverse mount to "%s"...' % tmpdir
-        env = self.get_modified_env()
-        err = subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), '--reverse', path, tmpdir], env=env)
+		# Construct rsync params
+		rsync_parameters = [
+			'-avzh', '--progress',
+			'--partial', '--partial-dir=.rsync-partial',
+			'--bwlimit', str(self.options.bwlimit),
+			'-e', 'ssh -p ' + str(self.options.port)
+		]
 
-        # rsync
-        if err == 0:
-            try:
-                destination = os.path.join(self.destination, friendlyname)
-                print 'Rsyncing encrypted "%s" to "%s"...' % (path, destination)
-                sys.stdout.flush()
-                subprocess.call(self.rsyncCmd + rsync_parameters + [tmpdir + '/', destination])
-            except KeyboardInterrupt, e:
-                print 'KeyboardInterrupt, sleeping 1 sec, then unmounting'
-                time.sleep(1)
-                subprocess.call(['fusermount', '-u', tmpdir])
-                os.rmdir(tmpdir)
-                raise e
-        else:
-            print 'encfs returned error', err
+		# Include filters must go before exclude for rsync to work as intended
+		for filter_name in ["include", "exclude"]:
+			try:
+				for e in self.filter_paths[filter_name]:
+					rsync_parameters.append('--' + filter_name + '=' + e)
+			except:
+				pass
 
-        # Unmount
-        print 'Unmounting encfs reverse mount...'
-        subprocess.call(['fusermount', '-u', tmpdir])
+		if (self.options.rsync_delete):
+			rsync_parameters += ['--delete', '--delete-excluded', '--delete-delay']
 
-        os.rmdir(tmpdir)
+		# create encfs mount
+		print('Making encfs reverse mount to "%s"...' % tmpdir)
+		env = self.get_modified_env()
+		err = subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), '--reverse', path, tmpdir], env=env)
 
-    def backup_keyfile(self):
-        try:
-            print 'Rsyncing Encfs keyfile to "%s"...' % (self.destination)
-            sys.stdout.flush()
-            subprocess.call(
-                self.rsyncCmd + [
-                    '-avz', '--progress',
-                    '--bwlimit',str(self.options.bwlimit),
-                    '-e', 'ssh -p ' + str(self.options.port),
-                    self.options.keyfile,
-                    self.destination
-                ]
-            )
-        except e:
-            #print 'KeyboardInterrupt...'
-            time.sleep(1)
-            raise e
+		# rsync
+		if err == 0:
+			try:
+				destination = os.path.join(self.destination, friendlyname)
+				print('Rsyncing encrypted "%s" to "%s"...' % (path, destination))
+				sys.stdout.flush()
+				subprocess.call(self.rsyncCmd + rsync_parameters + [tmpdir + '/', destination])
+			except KeyboardInterrupt as e:
+				print('KeyboardInterrupt, sleeping 1 sec, then unmounting')
+				time.sleep(1)
+				subprocess.call(['fusermount', '-u', tmpdir])
+				os.rmdir(tmpdir)
+				raise e
+		else:
+			print('encfs returned error', err)
 
-    def get_modified_env(self):
-        env = dict(os.environ)
-        env['ENCFS6_CONFIG'] = os.path.expanduser(self.options.keyfile)
-        return env
+		# Unmount
+		print('Unmounting encfs reverse mount...')
+		subprocess.call(['fusermount', '-u', tmpdir])
 
-    def verify_path(self, path):
-        print 'Verifying:', path
+		os.rmdir(tmpdir)
 
-        # create sshfs mount
-        friendlyname = path_to_string(path)
-        mountpath = os.path.join(self.destination, friendlyname)
-        tmpdir = tempfile.mkdtemp('-' + friendlyname)
-        tmpdirplain = tempfile.mkdtemp('-%s-plain' % friendlyname)
-        print 'Mounting "%s" sshfs read-only to "%s"...' % (mountpath, tmpdir)
-        try:
-            subprocess.check_call(['sshfs', '-o', 'ro', mountpath, tmpdir])
+	def backup_keyfile(self):
+		try:
+			print('Rsyncing Encfs keyfile to "%s"...' % (self.destination))
+			sys.stdout.flush()
+			subprocess.call(
+				self.rsyncCmd + [
+					'-avz', '--progress',
+					'--bwlimit',str(self.options.bwlimit),
+					'-e', 'ssh -p ' + str(self.options.port),
+					self.options.keyfile,
+					self.destination
+				]
+			)
+		except e:
+			#print 'KeyboardInterrupt...'
+			time.sleep(1)
+			raise e
 
-            # create encfs mount
-            print 'Mounting encfs on "%s"...' % tmpdirplain
-            try:
-                env = self.get_modified_env()
-                subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), tmpdir, tmpdirplain], env=env)
+	def get_modified_env(self):
+		env = dict(os.environ)
+		env['ENCFS6_CONFIG'] = os.path.expanduser(self.options.keyfile)
+		return env
 
-                # compare files
-                print 'Running rsync --dry-run, this should not list any changes...'
-                subprocess.call(self.rsyncCmd + ['-a', '--dry-run', path, tmpdirplain])
+	def verify_path(self, path):
+		print('Verifying:', path)
 
-            finally:
-                # wait a bit, or unmounting fails
-                print 'Sleeping a bit...'
-                time.sleep(5)
+		# create sshfs mount
+		friendlyname = path_to_string(path)
+		mountpath = os.path.join(self.destination, friendlyname)
+		tmpdir = tempfile.mkdtemp('-' + friendlyname)
+		tmpdirplain = tempfile.mkdtemp('-%s-plain' % friendlyname)
+		print('Mounting "%s" sshfs read-only to "%s"...' % (mountpath, tmpdir))
+		try:
+			subprocess.check_call(['sshfs', '-o', 'ro', mountpath, tmpdir])
 
-                # umount encfs
-                print 'Unmounting encfs "%s...' % tmpdirplain
-                subprocess.call(['fusermount', '-u', tmpdirplain])
+			# create encfs mount
+			print('Mounting encfs on "%s"...' % tmpdirplain)
+			try:
+				env = self.get_modified_env()
+				subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), tmpdir, tmpdirplain], env=env)
 
-        finally:
-            # umount sshfs
-            print 'Unmounting sshfs "%s"...' % tmpdir
-            subprocess.call(['fusermount', '-u', tmpdir])
-            os.rmdir(tmpdirplain)
-            os.rmdir(tmpdir)
+				# compare files
+				print('Running rsync --dry-run, this should not list any changes...')
+				subprocess.call(self.rsyncCmd + ['-a', '--dry-run', path, tmpdirplain])
 
-    def get_filter_paths(self):
-        filter_paths = {}
+			finally:
+				# wait a bit, or unmounting fails
+				print('Sleeping a bit...')
+				time.sleep(5)
 
-        for (file_name, filter_name) in [(self.options.include_from, "include"), (self.options.exclude_from, "exclude")]:
-            # Check if filter file has been specified
-            if (file_name == ''):
-                continue
+				# umount encfs
+				print('Unmounting encfs "%s...' % tmpdirplain)
+				subprocess.call(['fusermount', '-u', tmpdirplain])
 
-            f = open(file_name, "r")
-            filter_paths[filter_name] = []
+		finally:
+			# umount sshfs
+			print('Unmounting sshfs "%s"...' % tmpdir)
+			subprocess.call(['fusermount', '-u', tmpdir])
+			os.rmdir(tmpdirplain)
+			os.rmdir(tmpdir)
 
-            print 'Generating ' + filter_name + ' path list...'
-            for backup_path in self.args[:-1]:
-                for filter_dir in f:
-                    filter_dir = filter_dir.strip()
-                    
-                    # If not a comment or empty line
-                    if (filter_dir != '' and filter_dir[0] != '#'):
-                        # Check if wildcard pattern used to include dir but exclude its content
-                        wildcard_dir = (filter_dir[-2:] == '/*')
+	def get_filter_paths(self):
+		filter_paths = {}
 
-                        # encfs encode does not understand wildcards :(
-                        filter_dir = filter_dir.strip('*')
+		for (file_name, filter_name) in [(self.options.include_from, "include"), (self.options.exclude_from, "exclude")]:
+			# Check if filter file has been specified
+			if (file_name == ''):
+				continue
 
-                        try:
-                            # Encode path names without mounting
-                            env = self.get_modified_env()
-                            output = subprocess.check_output(['encfsctl', 'encode', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), backup_path, filter_dir], env=env)
+			f = open(file_name, "r")
+			filter_paths[filter_name] = []
 
-                            for encoded_filter in iter(output.splitlines()):
-                                if (wildcard_dir):
-                                    encoded_filter += '*'
+			print('Generating ' + filter_name + ' path list...')
+			for backup_path in self.args[:-1]:
+				for filter_dir in f:
+					filter_dir = filter_dir.strip()
 
-                                filter_paths[filter_name].append(encoded_filter)
+					# If not a comment or empty line
+					if (filter_dir != '' and filter_dir[0] != '#'):
+						# Check if wildcard pattern used to include dir but exclude its content
+						wildcard_dir = (filter_dir[-2:] == '/*')
 
-                        except e:
-                            raise e
+						# encfs encode does not understand wildcards :(
+						filter_dir = filter_dir.strip('*')
 
-            f.close()
+						try:
+							# Encode path names without mounting
+							env = self.get_modified_env()
+							output = subprocess.check_output(['encfsctl', 'encode', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), backup_path, filter_dir], env=env)
 
-        return filter_paths
+							for encoded_filter in iter(output.splitlines()):
+								if (wildcard_dir):
+									encoded_filter += '*'
 
-    def run(self):
-        parser = optparse.OptionParser(usage='usage: %prog [options] dir-to-back-up1... remotepath')
+								filter_paths[filter_name].append(encoded_filter)
 
-        paths = optparse.OptionGroup(parser, 'paths')
-        paths.add_option('-k', '--keyfile', dest='keyfile', default='~/.encrb/encfs.xml', help='encfs keyfile to use [%default]')
-        paths.add_option('-p', '--passfile', dest='passfile', default='~/.encrb/password', help='file containing encfs keyfile password [%default]')
-        paths.add_option('-i', '--include-from', dest='include_from', default='', help='Read rsync include patterns from file')
-        paths.add_option('-e', '--exclude-from', dest='exclude_from', default='', help='Read rsync exclude patterns from file')
-        paths.add_option('-t', '--tmpdir', dest='custom_tmp', default='', help='Define a custom tmp dir, otherwise the system default will be used')
-        paths.add_option('-c', '--config', dest='config_file', default='encrb.cfg', help='Define a config file to load options from. Any options set via the command line take presidence over the config')
+						except e:
+							raise e
 
-        settings = optparse.OptionGroup(parser, 'settings')
-        settings.add_option('-b', '--bwlimit', dest='bwlimit', default=0, type='int', help='Bandwidth limit (KiB/s) for rsync [%default]')
-        settings.add_option('-P', '--port', dest='port', default=22, type='int', help='Port used by rsync [%default]')
-        settings.add_option('', '--tunnel-mode', dest='tunnel', default='none', type='choice', help='If tunneling should be used or not [%default]', choices=['none', 'tsocks', 'auto'])
+			f.close()
 
-        flags = optparse.OptionGroup(parser, 'flags')
-        flags.add_option('-v', '--verify', dest='verify', default=False, action="store_true", help="Instead of backing up, verify that the backups match sources")
-        flags.add_option('', '--backup-keyfile', dest='backup_keyfile', default=False, action="store_true", help="Backup Encfs keyfile on remote machine - NOT RECOMMENDED")
-        flags.add_option('', '--no-env-check', dest='check_env', default=True, action="store_false", help="Disable environment tool version checking")
-        flags.add_option('', '--no-delete', dest='rsync_delete', default=True, action="store_false", help="Do not delete existing remote files that are no longer present locally or have been excluded")
+		return filter_paths
 
-        parser.add_option_group(paths)
-        parser.add_option_group(settings)
-        parser.add_option_group(flags)
+	def run(self):
+		parser = optparse.OptionParser(usage='usage: %prog [options] dir-to-back-up1... remotepath')
 
-        # First, parse options
-        (options, args) = parser.parse_args()
-        self.options = options
-        self.args = args
-        self.options.config_file = os.path.expanduser(self.options.config_file)
+		paths = optparse.OptionGroup(parser, 'paths')
+		paths.add_option('-k', '--keyfile', dest='keyfile', default='~/.encrb/encfs.xml', help='encfs keyfile to use [%default]')
+		paths.add_option('-p', '--passfile', dest='passfile', default='~/.encrb/password', help='file containing encfs keyfile password [%default]')
+		paths.add_option('-i', '--include-from', dest='include_from', default='', help='Read rsync include patterns from file')
+		paths.add_option('-e', '--exclude-from', dest='exclude_from', default='', help='Read rsync exclude patterns from file')
+		paths.add_option('-t', '--tmpdir', dest='custom_tmp', default='', help='Define a custom tmp dir, otherwise the system default will be used')
+		paths.add_option('-c', '--config', dest='config_file', default='encrb.cfg', help='Define a config file to load options from. Any options set via the command line take presidence over the config')
 
-        if options.config_file and os.path.isfile(options.config_file):
-            # Load config from file and then re-parse
-            config = ConfigParser.ConfigParser(allow_no_value=True)
-            config.read(self.options.config_file)
+		settings = optparse.OptionGroup(parser, 'settings')
+		settings.add_option('-b', '--bwlimit', dest='bwlimit', default=0, type='int', help='Bandwidth limit (KiB/s) for rsync [%default]')
+		settings.add_option('-P', '--port', dest='port', default=22, type='int', help='Port used by rsync [%default]')
+		settings.add_option('', '--tunnel-mode', dest='tunnel', default='none', type='choice', help='If tunneling should be used or not [%default]', choices=['none', 'tsocks', 'auto'])
 
-            for group in parser.option_groups:
-                for option in group.option_list:
-                    groupTxt = group.title
-                    optionTxt = option._long_opts[0].strip('-')
-                    if config.has_option(groupTxt, optionTxt):
-                        value = config.get(groupTxt, optionTxt)
-                        if option.action in ('store_true', 'store_false'):
-                            sys.argv.insert(1,'--%s' % optionTxt)
-                        else:
-                            value = config.get(groupTxt, optionTxt)
-                            if value:
-                                sys.argv.insert(1,'--%s=%s' % (optionTxt, value))
-            # Source dirs and remote backup location were not specified via command line, read them in from config file
-            if not args:
-                for option in ('src_dirs', 'remote'):
-                    if config.has_option('args', option):
-                        value = config.get('args', option).split(',')
-                        sys.argv.extend(os.path.expanduser(item.strip()) for item in value)
+		flags = optparse.OptionGroup(parser, 'flags')
+		flags.add_option('-v', '--verify', dest='verify', default=False, action="store_true", help="Instead of backing up, verify that the backups match sources")
+		flags.add_option('', '--backup-keyfile', dest='backup_keyfile', default=False, action="store_true", help="Backup Encfs keyfile on remote machine - NOT RECOMMENDED")
+		flags.add_option('', '--no-env-check', dest='check_env', default=True, action="store_false", help="Disable environment tool version checking")
+		flags.add_option('', '--no-delete', dest='rsync_delete', default=True, action="store_false", help="Do not delete existing remote files that are no longer present locally or have been excluded")
 
-            self.options, self.args = parser.parse_args()
+		parser.add_option_group(paths)
+		parser.add_option_group(settings)
+		parser.add_option_group(flags)
 
-        self.options.keyfile = os.path.expanduser(self.options.keyfile)
-        self.options.passfile = os.path.expanduser(self.options.passfile)
-        self.options.include_from = os.path.expanduser(self.options.include_from)
-        self.options.exclude_from = os.path.expanduser(self.options.exclude_from)
-        self.options.custom_tmp = os.path.expanduser(self.options.custom_tmp)
+		# First, parse options
+		(options, args) = parser.parse_args()
+		self.options = options
+		self.args = args
+		self.options.config_file = os.path.expanduser(self.options.config_file)
 
-        if self.options.tunnel == 'auto':
-            # Check if a VPN is running. If so, use tsocks. Else, don't
-            try:
-                with open('/sys/class/net/vpn0/operstate', 'r') as state:
-                    if state.read().strip() == 'up':
-                        self.options.tunnel = 'tsocks'
-                    else:
-                        self.options.tunnel = 'none'
-            except IOError:
-                self.options.tunnel = 'none'
-        if self.options.tunnel == 'none':
-            self.rsyncCmd = ['rsync']
-        elif self.options.tunnel == 'tsocks':
-            self.rsyncCmd = ['tsocks', 'rsync']
-        else:
-            raise ValueError('Unknown option for --tunnel-mode: ' + self.options.tunnel)
+		if options.config_file and os.path.isfile(options.config_file):
+			# Load config from file and then re-parse
+			config = configparser.ConfigParser(allow_no_value=True)
+			config.read(self.options.config_file)
 
-        print 'Options:', options
+			for group in parser.option_groups:
+				for option in group.option_list:
+					groupTxt = group.title
+					optionTxt = option._long_opts[0].strip('-')
+					if config.has_option(groupTxt, optionTxt):
+						value = config.get(groupTxt, optionTxt)
+						if option.action in ('store_true', 'store_false'):
+							sys.argv.insert(1,'--%s' % optionTxt)
+						else:
+							value = config.get(groupTxt, optionTxt)
+							if value:
+								sys.argv.insert(1,'--%s=%s' % (optionTxt, value))
+			# Source dirs and remote backup location were not specified via command line, read them in from config file
+			if not args:
+				for option in ('src_dirs', 'remote'):
+					if config.has_option('args', option):
+						value = config.get('args', option).split(',')
+						sys.argv.extend(os.path.expanduser(item.strip()) for item in value)
 
-        if (self.options.check_env):
-            self.check_environment()
+			self.options, self.args = parser.parse_args()
 
-        if len(self.args) < 2:
-            parser.error('Need more than two arguments')
+		self.options.keyfile = os.path.expanduser(self.options.keyfile)
+		self.options.passfile = os.path.expanduser(self.options.passfile)
+		self.options.include_from = os.path.expanduser(self.options.include_from)
+		self.options.exclude_from = os.path.expanduser(self.options.exclude_from)
+		self.options.custom_tmp = os.path.expanduser(self.options.custom_tmp)
 
-        if (self.options.custom_tmp):
-            if (not os.path.exists(self.options.custom_tmp)):
-                parser.error('Invalid temp dir')
-            else:
-                tempfile.tempdir = self.options.custom_tmp
+		if self.options.tunnel == 'auto':
+			# Check if a VPN is running. If so, use tsocks. Else, don't
+			try:
+				with open('/sys/class/net/vpn0/operstate', 'r') as state:
+					if state.read().strip() == 'up':
+						self.options.tunnel = 'tsocks'
+					else:
+						self.options.tunnel = 'none'
+			except IOError:
+				self.options.tunnel = 'none'
+		if self.options.tunnel == 'none':
+			self.rsyncCmd = ['rsync']
+		elif self.options.tunnel == 'tsocks':
+			self.rsyncCmd = ['tsocks', 'rsync']
+		else:
+			raise ValueError('Unknown option for --tunnel-mode: ' + self.options.tunnel)
 
-        self.destination = self.args[-1]
-        print 'Paths to back up:', self.args[:-1]
-        print 'Destination:', self.destination
+		print('Options:', options)
 
-        self.setup_once()
+		if (self.options.check_env):
+			self.check_environment()
 
-        if (options.backup_keyfile):
-            self.backup_keyfile()
-        
-        self.filter_paths = self.get_filter_paths()
+		if len(self.args) < 2:
+			parser.error('Need more than two arguments')
 
-        for p in self.args[:-1]:
-            if options.verify:
-                self.verify_path(p)
-            else:
-                self.backup_path(p)
+		if (self.options.custom_tmp):
+			if (not os.path.exists(self.options.custom_tmp)):
+				parser.error('Invalid temp dir')
+			else:
+				tempfile.tempdir = self.options.custom_tmp
 
-    def setup_once(self):
-        if (not os.path.exists(self.options.passfile)):
-            print '!!!!! Passfile missing, running in setup mode. Press enter for default encfs settings.'
+		self.destination = self.args[-1]
+		print('Paths to back up:', self.args[:-1])
+		print('Destination:', self.destination)
 
-            # Ensure passfile leaf and parent dirs are present,
-            # otherwise open() will fail
-            fdir = os.path.dirname(self.options.keyfile)
-            if not os.path.exists(fdir):
-                os.makedirs(fdir)
-        
-            # Ask or generate and save password
-            password = getpass.getpass(prompt='Encfs encryption password (enter for random): ')
-            if (password == ''):
-                print "No password given, generating random one..."
-                password = ''.join(random.choice(string.letters + string.digits) for _ in range(20))
-        
-            f = open(self.options.passfile, 'w')
-            f.write(password)
-            f.close()
+		self.setup_once()
 
-        if (not os.path.exists(self.options.keyfile)):
-            print '!!!!! keyfile missing, running in setup mode. Press enter for default encfs settings.'
+		if (options.backup_keyfile):
+			self.backup_keyfile()
 
-            # Mount in reverse mode on arbitrary directory,
-            # as this seems to be the only way to generate config
-            tmpdir = tempfile.mkdtemp('-encfs-first')
-            tmpdirplain = tempfile.mkdtemp('-encfs-first-plain')
-            try:
-                print "Mounting encfs for first time..."
-                subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), '--reverse', tmpdir, tmpdirplain], env=os.environ)
+		self.filter_paths = self.get_filter_paths()
 
-                # Grab config and put it to where we want it
-                shutil.copy(os.path.join(tmpdir, '.encfs6.xml'), os.path.expanduser(self.options.keyfile))
-                
-            finally:
-                print 'Unmounting encfs "%s...' % tmpdirplain
-                subprocess.call(['fusermount', '-u', tmpdirplain])
-                shutil.rmtree(tmpdir)
-                os.rmdir(tmpdirplain)
+		for p in self.args[:-1]:
+			if options.verify:
+				self.verify_path(p)
+			else:
+				self.backup_path(p)
+
+	def setup_once(self):
+		if (not os.path.exists(self.options.passfile)):
+			print('!!!!! Passfile missing, running in setup mode. Press enter for default encfs settings.')
+
+			# Ensure passfile leaf and parent dirs are present,
+			# otherwise open() will fail
+			fdir = os.path.dirname(self.options.keyfile)
+			if not os.path.exists(fdir):
+				os.makedirs(fdir)
+
+			# Ask or generate and save password
+			password = getpass.getpass(prompt='Encfs encryption password (enter for random): ')
+			if (password == ''):
+				print("No password given, generating random one...")
+				password = ''.join(random.choice(string.letters + string.digits) for _ in range(20))
+
+			f = open(self.options.passfile, 'w')
+			f.write(password)
+			f.close()
+
+		if (not os.path.exists(self.options.keyfile)):
+			print('!!!!! keyfile missing, running in setup mode. Press enter for default encfs settings.')
+
+			# Mount in reverse mode on arbitrary directory,
+			# as this seems to be the only way to generate config
+			tmpdir = tempfile.mkdtemp('-encfs-first')
+			tmpdirplain = tempfile.mkdtemp('-encfs-first-plain')
+			try:
+				print("Mounting encfs for first time...")
+				subprocess.call(['encfs', '--extpass', 'cat %s' % os.path.expanduser(self.options.passfile), '--reverse', tmpdir, tmpdirplain], env=os.environ)
+
+				# Grab config and put it to where we want it
+				shutil.copy(os.path.join(tmpdir, '.encfs6.xml'), os.path.expanduser(self.options.keyfile))
+				
+			finally:
+				print('Unmounting encfs "%s...' % tmpdirplain)
+				subprocess.call(['fusermount', '-u', tmpdirplain])
+				shutil.rmtree(tmpdir)
+				os.rmdir(tmpdirplain)
 
 e = Encrb()
 e.run()
